@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Code 學生簽到系統</title>
+    <script src="https://jsdelivr.net"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; background: #f0f2f5; padding: 20px; }
+        #preview { width: 100%; max-width: 400px; border: 5px solid #fff; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        #status { margin-top: 20px; font-weight: bold; color: #007bff; }
+        .loading { color: orange; }
+    </style>
+</head>
+<body>
+    <h2>學生簽到掃描鏡頭</h2>
+    <video id="preview"></video>
+    <div id="status">等待讀取 QR Code...</div>
+
+    <script>
+        const video = document.getElementById('preview');
+        const status = document.getElementById('status');
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbyRXcIl7-gFPGxQ1k5LvVmpM_BZiH2uTMdecdpPm19C_3YAvCvUWpXJ5slt4-zMCQXQ/exec"; // 稍後替換
+
+        // 啟動鏡頭
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }).then(stream => {
+            video.srcObject = stream;
+            video.setAttribute("playsinline", true);
+            video.play();
+            requestAnimationFrame(tick);
+        });
+
+        function tick() {
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                const canvas = document.createElement("canvas");
+                canvas.height = video.videoHeight;
+                canvas.width = video.videoWidth;
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const code = jsQR(imageData.data, imageData.width, imageData.height);
+
+                if (code) {
+                    sendData(code.data);
+                    return; // 成功掃描後停止，避免重複傳送
+                }
+            }
+            requestAnimationFrame(tick);
+        }
+
+        async function sendData(qrString) {
+            status.innerHTML = `<span class="loading">正在傳送資料: ${qrString}...</span>`;
+            
+            try {
+                // 使用 JSONP 或 POST 傳回 GAS
+                const response = await fetch(`${GAS_URL}?data=${encodeURIComponent(qrString)}`, {
+                    mode: 'no-cors' // 解決跨網域問題
+                });
+                status.innerHTML = `<span style="color:green;">簽到成功！內容：${qrString}</span>`;
+                setTimeout(() => location.reload(), 2000); // 2秒後重新掃描下一位
+            } catch (e) {
+                status.innerHTML = `<span style="color:red;">傳送失敗：${e.message}</span>`;
+            }
+        }
+    </script>
+</body>
+</html>
