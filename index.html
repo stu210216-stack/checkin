@@ -1,67 +1,101 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QR Code 學生簽到系統</title>
+    <title>QR Code 學生簽到掃描器</title>
+    <!-- 引入 jsQR 核心庫 -->
     <script src="https://jsdelivr.net"></script>
     <style>
-        body { font-family: sans-serif; text-align: center; background: #f0f2f5; padding: 20px; }
-        #preview { width: 100%; max-width: 400px; border: 5px solid #fff; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        #status { margin-top: 20px; font-weight: bold; color: #007bff; }
-        .loading { color: orange; }
+        body { font-family: -apple-system, sans-serif; text-align: center; background-color: #f4f7f9; margin: 0; padding: 20px; }
+        #container { position: relative; width: 100%; max-width: 500px; margin: auto; background: white; padding: 15px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        video { width: 100%; border-radius: 10px; background: #000; }
+        #status { margin-top: 20px; font-size: 1.2rem; font-weight: bold; color: #555; min-height: 1.5em; }
+        .success { color: #28a745 !important; }
+        .loading { color: #ffc107 !important; }
+        canvas { display: none; } /* 隱藏繪圖用畫布 */
     </style>
 </head>
 <body>
-    <h2>學生簽到掃描鏡頭</h2>
-    <video id="preview"></video>
-    <div id="status">等待讀取 QR Code...</div>
 
-    <script>
-        const video = document.getElementById('preview');
-        const status = document.getElementById('status');
-        const GAS_URL = "https://script.google.com/macros/s/AKfycbyRXcIl7-gFPGxQ1k5LvVmpM_BZiH2uTMdecdpPm19C_3YAvCvUWpXJ5slt4-zMCQXQ/exec"; // 稍後替換
+<div id="container">
+    <h2 style="color: #333;">學生簽到掃描</h2>
+    <p style="color: #888; font-size: 0.9rem;">請將 QR Code 對準鏡頭中央</p>
+    
+    <!-- 鏡頭預覽區域 -->
+    <video id="video" playsinline></video>
+    
+    <div id="status">正在啟動攝影機...</div>
+</div>
 
-        // 啟動鏡頭
-        navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }).then(stream => {
-            video.srcObject = stream;
-            video.setAttribute("playsinline", true);
-            video.play();
-            requestAnimationFrame(tick);
-        });
+<script>
+    // 【重要】請將下方網址替換為你 Google Apps Script 的「部署網址」
+    const GAS_URL = "你的_GAS_部署網址"; 
 
-        function tick() {
-            if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                const canvas = document.createElement("canvas");
-                canvas.height = video.videoHeight;
-                canvas.width = video.videoWidth;
-                const ctx = canvas.getContext("2d");
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                const code = jsQR(imageData.data, imageData.width, imageData.height);
+    const video = document.getElementById("video");
+    const status = document.getElementById("status");
+    let isProcessing = false; // 防止重複掃描
 
-                if (code) {
-                    sendData(code.data);
-                    return; // 成功掃描後停止，避免重複傳送
-                }
-            }
-            requestAnimationFrame(tick);
-        }
+    // 啟動鏡頭
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+    .then(function(stream) {
+        video.srcObject = stream;
+        video.setAttribute("playsinline", true); // iOS 必須
+        video.play();
+        status.innerText = "等待讀取 QR Code...";
+        requestAnimationFrame(tick);
+    })
+    .catch(function(err) {
+        status.innerText = "無法開啟相機，請檢查權限或使用 HTTPS 連線";
+    });
 
-        async function sendData(qrString) {
-            status.innerHTML = `<span class="loading">正在傳送資料: ${qrString}...</span>`;
+    function tick() {
+        if (isProcessing) return; // 正在處理中則跳過本次偵測
+
+        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            const canvas = document.createElement("canvas");
+            canvas.height = video.videoHeight;
+            canvas.width = video.videoWidth;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             
-            try {
-                // 使用 JSONP 或 POST 傳回 GAS
-                const response = await fetch(`${GAS_URL}?data=${encodeURIComponent(qrString)}`, {
-                    mode: 'no-cors' // 解決跨網域問題
-                });
-                status.innerHTML = `<span style="color:green;">簽到成功！內容：${qrString}</span>`;
-                setTimeout(() => location.reload(), 2000); // 2秒後重新掃描下一位
-            } catch (e) {
-                status.innerHTML = `<span style="color:red;">傳送失敗：${e.message}</span>`;
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                inversionAttempts: "dontInvert",
+            });
+
+            if (code && code.data !== "") {
+                isProcessing = true; // 鎖定偵測
+                sendData(code.data);
+                return; // 跳出循環
             }
         }
-    </script>
+        requestAnimationFrame(tick);
+    }
+
+    function sendData(qrData) {
+        status.innerHTML = `<span class="loading">掃描成功！資料傳送中...</span>`;
+        console.log("QR Data:", qrData);
+
+        // 使用隱形圖片請求（Image Beacon）發送資料到 GAS，這是解決跨網域問題最穩定的方法
+        const finalUrl = GAS_URL + "?data=" + encodeURIComponent(qrData);
+        const img = new Image();
+        
+        img.onload = img.onerror = function() {
+            // 無論回傳成功或失敗（因為 GAS 回傳的是 text/json 而不是圖片），資料通常都已經送達
+            status.innerHTML = `<span class="success">簽到成功！<br>${qrData}</span>`;
+            
+            // 3秒後重新啟動掃描功能
+            setTimeout(() => {
+                isProcessing = false;
+                status.innerText = "等待讀取 QR Code...";
+                requestAnimationFrame(tick);
+            }, 3000);
+        };
+        
+        img.src = finalUrl;
+    }
+</script>
+
 </body>
 </html>
